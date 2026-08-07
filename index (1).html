@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Magazyn B2B</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'IBM Plex Mono', monospace; background:#0B0D0F; margin:0; }
+  .font-display { font-family: 'Archivo', sans-serif; }
+  ::selection { background: #C8FF3D; color: #0B0D0F; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// Zwykły JavaScript, bez JSX i bez tłumaczenia "na żywo" w przeglądarce - odporne na blokady rozszerzeń
+const h = React.createElement;
+const { useState, useMemo, useEffect, useCallback } = React;
+
+const HEADER_MAP = {
+  nazwa: ["nazwa", "produkt_nazwa", "name"],
+  stan: ["stan", "status"],
+  ilosc: ["ilosc", "ilość", "quantity", "stock"],
+  cena: ["cena", "cena sklep", "price"],
+  marka: ["marka", "brand"],
+  sku: ["sku", "produkt_sku"],
+};
+function normalizeHeader(hh){ return hh.toLowerCase().replace(/["']/g,"").trim(); }
+function mapRow(raw){
+  const out = {};
+  const keys = Object.keys(raw).reduce((acc,k)=>{acc[normalizeHeader(k)]=raw[k];return acc;},{});
+  for (const [field, aliases] of Object.entries(HEADER_MAP)){
+    const foundKey = aliases.find(a => a in keys);
+    out[field] = foundKey ? keys[foundKey] : "";
+  }
+  out.ilosc = Number(String(out.ilosc).replace(/[^0-9.-]/g,"")) || 0;
+  out.cena = Number(String(out.cena).replace(/[^0-9.,]/g,"").replace(",", ".")) || 0;
+  return out;
+}
+const PALETTE = ["#C8FF3D","#FF6B35","#5AC8FA","#3A3F45","#E85D75"];
+function statusColor(s){ const i = Array.from(String(s)).reduce((a,c)=>a+c.charCodeAt(0),0)%PALETTE.length; return PALETTE[i]; }
+
+function Katalog(){
+  const [data,setData] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [error,setError] = useState("");
+  const [lastSync,setLastSync] = useState(null);
+  const [query,setQuery] = useState("");
+  const [marka,setMarka] = useState("");
+  const [stan,setStan] = useState("");
+  const [sortKey,setSortKey] = useState("nazwa");
+  const [sortDir,setSortDir] = useState(1);
+
+  const fetchCsv = useCallback(()=>{
+    setLoading(true); setError("");
+    fetch("/api/csv-proxy")
+      .then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
+      .then(text=>{
+        const parsed = Papa.parse(text, {header:true, delimiter:";", skipEmptyLines:true});
+        let mapped = parsed.data.map(mapRow).filter(r=>r.nazwa);
+        // Rekonstrukcja: wiersze bez spacji w NAZWIE (np. "10LV", "13") to warianty/rozmiary
+        // poprzedniego pełnego produktu - trafiają do osobnego pola "rozmiar".
+        let currentName = "";
+        mapped = mapped.map(r => {
+          const nazwa = r.nazwa.trim();
+          const wygladaJakWariant = nazwa.length > 0 && !/\s/.test(nazwa);
+          if (wygladaJakWariant && currentName) {
+            return { ...r, nazwa: currentName, rozmiar: nazwa };
+          }
+          if (!wygladaJakWariant) currentName = nazwa;
+          return { ...r, rozmiar: "" };
+        });
+        setData(mapped);
+        setLastSync(new Date());
+      })
+      .catch(e=> setError("Nie udało się pobrać danych: "+e.message))
+      .finally(()=> setLoading(false));
+  },[]);
+
+  useEffect(()=>{
+    fetchCsv();
+    const t = setInterval(fetchCsv, 60*60*1000);
+    return ()=> clearInterval(t);
+  },[fetchCsv]);
+
+  const marki = useMemo(()=>[...new Set(data.map(r=>r.marka).filter(Boolean))].sort(),[data]);
+  const stany = useMemo(()=>[...new Set(data.map(r=>r.stan).filter(Boolean))].sort(),[data]);
+
+  const rows = useMemo(()=>{
+    let d = data.filter(r=>r.ilosc>0);
+    if(query) d = d.filter(r=> r.nazwa.toLowerCase().includes(query.toLowerCase()) || r.sku.toLowerCase().includes(query.toLowerCase()));
+    if(marka) d = d.filter(r=>r.marka===marka);
+    if(stan) d = d.filter(r=>r.stan===stan);
+    d = [...d].sort((a,b)=>{
+      const av=a[sortKey], bv=b[sortKey];
+      if(typeof av==="number") return (av-bv)*sortDir;
+      return String(av).localeCompare(String(bv),"pl")*sortDir;
+    });
+    return d;
+  },[data,query,marka,stan,sortKey,sortDir]);
+
+  const toggleSort = k => { if(sortKey===k) setSortDir(d=>-d); else {setSortKey(k); setSortDir(1);} };
+  const clearFilters = () => { setQuery(""); setMarka(""); setStan(""); };
+
+  function Th(label,k,width){
+    return h("th", {
+      key:k, onClick:()=>toggleSort(k),
+      className:"sticky top-0 z-10 bg-[#0B0D0F] border-b border-[#2A2E33] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8A9099] cursor-pointer select-none hover:text-[#EDEEF0] "+(width||"")
+    }, label + " " + (sortKey===k ? (sortDir===1?"▲":"▼") : ""));
+  }
+
+  return h("div", {className:"min-h-screen w-full text-[#EDEEF0] p-6"},
+    error && h("div", {className:"max-w-[1400px] mx-auto mb-4 bg-[#2A1414] border border-[#FF6B35] rounded-md p-3 text-xs text-[#FF9B7A]"}, error),
+    h("div", {className:"max-w-[1400px] mx-auto mb-6 flex items-center justify-between flex-wrap gap-4"},
+      h("div", null,
+        h("h1", {className:"font-display text-2xl uppercase"}, "Magazyn ", h("span",{className:"text-[#C8FF3D]"},"B2B")),
+        h("p", {className:"text-xs text-[#8A9099] mt-1"},
+          (loading ? "ładowanie..." : lastSync ? ("zaktualizowano o " + lastSync.toLocaleTimeString("pl-PL")) : "") + " · " + rows.length + " pozycji"
+        )
+      ),
+      h("input", {
+        value:query, onChange:e=>setQuery(e.target.value), placeholder:"Szukaj po nazwie lub SKU...",
+        className:"w-full sm:w-80 bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#C8FF3D]"
+      })
+    ),
+    h("div", {className:"max-w-[1400px] mx-auto flex gap-2 mb-4 flex-wrap"},
+      h("select", {value:marka, onChange:e=>setMarka(e.target.value), className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs"},
+        h("option",{value:""},"Marka: wszystkie"),
+        marki.map(m=>h("option",{key:m,value:m},m))
+      ),
+      h("select", {value:stan, onChange:e=>setStan(e.target.value), className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs"},
+        h("option",{value:""},"Stan: wszystkie"),
+        stany.map(s=>h("option",{key:s,value:s},s))
+      ),
+      (query||marka||stan) && h("button",{onClick:clearFilters, className:"text-xs text-[#8A9099] hover:text-[#C8FF3D] px-2 py-1.5"}, "✕ wyczyść filtry")
+    ),
+    h("div", {className:"max-w-[1400px] mx-auto border border-[#2A2E33] rounded-lg overflow-hidden"},
+      h("div", {className:"overflow-x-auto max-h-[600px] overflow-y-auto"},
+        h("table", {className:"w-full border-collapse"},
+          h("thead", null, h("tr", null,
+            Th("Nazwa","nazwa",""), Th("Rozmiar","rozmiar","w-20"), Th("Stan","stan","w-28"), Th("Ilość","ilosc","w-20"),
+            Th("Cena","cena","w-24"), Th("Marka","marka","w-32"), Th("SKU","sku","w-40")
+          )),
+          h("tbody", null,
+            rows.map((r,i)=>h("tr", {key:r.sku+i, className:"border-b border-[#1C2024] hover:bg-[#15181B] "+(i%2===0?"bg-[#0E1114]":"bg-[#0B0D0F]")},
+              h("td",{className:"px-3 py-2 text-sm"}, r.nazwa),
+              h("td",{className:"px-3 py-2 text-sm text-[#8A9099]"}, r.rozmiar || "—"),
+              h("td",{className:"px-3 py-2"}, h("span",{className:"inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-[#0B0D0F]", style:{backgroundColor:statusColor(r.stan)}}, r.stan||"—")),
+              h("td",{className:"px-3 py-2 text-sm text-[#C8FF3D]"}, r.ilosc),
+              h("td",{className:"px-3 py-2 text-sm"}, r.cena ? (r.cena.toLocaleString("pl-PL")+" zł") : "—"),
+              h("td",{className:"px-3 py-2 text-sm text-[#8A9099]"}, r.marka||"—"),
+              h("td",{className:"px-3 py-2 text-xs text-[#5A6068]"}, r.sku)
+            )),
+            rows.length===0 && !loading && h("tr",null, h("td",{colSpan:6, className:"px-3 py-8 text-center text-sm text-[#5A6068]"}, "Brak wyników."))
+          )
+        )
+      )
+    )
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(h(Katalog));
+</script>
+</body>
+</html>
