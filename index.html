@@ -7,18 +7,19 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@700;800;900&display=swap" rel="stylesheet">
 <style>
-  body { font-family: 'IBM Plex Mono', monospace; background:#0B0D0F; }
+  body { font-family: 'IBM Plex Mono', monospace; background:#0B0D0F; margin:0; }
   .font-display { font-family: 'Archivo', sans-serif; }
   ::selection { background: #C8FF3D; color: #0B0D0F; }
 </style>
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel" data-presets="react">
+<script>
+// Zwykły JavaScript, bez JSX i bez tłumaczenia "na żywo" w przeglądarce - odporne na blokady rozszerzeń
+const h = React.createElement;
 const { useState, useMemo, useEffect, useCallback } = React;
 
 const HEADER_MAP = {
@@ -29,7 +30,7 @@ const HEADER_MAP = {
   marka: ["marka", "brand"],
   sku: ["sku", "produkt_sku"],
 };
-function normalizeHeader(h){ return h.toLowerCase().replace(/["']/g,"").trim(); }
+function normalizeHeader(hh){ return hh.toLowerCase().replace(/["']/g,"").trim(); }
 function mapRow(raw){
   const out = {};
   const keys = Object.keys(raw).reduce((acc,k)=>{acc[normalizeHeader(k)]=raw[k];return acc;},{});
@@ -93,68 +94,62 @@ function Katalog(){
   const toggleSort = k => { if(sortKey===k) setSortDir(d=>-d); else {setSortKey(k); setSortDir(1);} };
   const clearFilters = () => { setQuery(""); setMarka(""); setStan(""); };
 
-  const Th = ({label,k,width}) => (
-    <th onClick={()=>toggleSort(k)}
-      className={`sticky top-0 z-10 bg-[#0B0D0F] border-b border-[#2A2E33] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8A9099] cursor-pointer select-none hover:text-[#EDEEF0] ${width||""}`}>
-      {label} {sortKey===k ? (sortDir===1?"▲":"▼") : ""}
-    </th>
-  );
+  function Th(label,k,width){
+    return h("th", {
+      key:k, onClick:()=>toggleSort(k),
+      className:"sticky top-0 z-10 bg-[#0B0D0F] border-b border-[#2A2E33] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8A9099] cursor-pointer select-none hover:text-[#EDEEF0] "+(width||"")
+    }, label + " " + (sortKey===k ? (sortDir===1?"▲":"▼") : ""));
+  }
 
-  return (
-    <div className="min-h-screen w-full text-[#EDEEF0] p-6">
-      {error && <div className="max-w-[1400px] mx-auto mb-4 bg-[#2A1414] border border-[#FF6B35]/40 rounded-md p-3 text-xs text-[#FF9B7A]">{error}</div>}
-      <div className="max-w-[1400px] mx-auto mb-6 flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="font-display text-2xl uppercase">Magazyn <span className="text-[#C8FF3D]">B2B</span></h1>
-          <p className="text-xs text-[#8A9099] mt-1">
-            {loading ? "ładowanie..." : lastSync ? `zaktualizowano o ${lastSync.toLocaleTimeString("pl-PL")}` : ""} · {rows.length} pozycji
-          </p>
-        </div>
-        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Szukaj po nazwie lub SKU..."
-          className="w-full sm:w-80 bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#C8FF3D]" />
-      </div>
-      <div className="max-w-[1400px] mx-auto flex gap-2 mb-4 flex-wrap">
-        <select value={marka} onChange={e=>setMarka(e.target.value)} className="bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs">
-          <option value="">Marka: wszystkie</option>
-          {marki.map(m=><option key={m} value={m}>{m}</option>)}
-        </select>
-        <select value={stan} onChange={e=>setStan(e.target.value)} className="bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs">
-          <option value="">Stan: wszystkie</option>
-          {stany.map(s=><option key={s} value={s}>{s}</option>)}
-        </select>
-        {(query||marka||stan) && <button onClick={clearFilters} className="text-xs text-[#8A9099] hover:text-[#C8FF3D] px-2 py-1.5">✕ wyczyść filtry</button>}
-      </div>
-      <div className="max-w-[1400px] mx-auto border border-[#2A2E33] rounded-lg overflow-hidden">
-        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-          <table className="w-full border-collapse">
-            <thead><tr>
-              <Th label="Nazwa" k="nazwa" />
-              <Th label="Stan" k="stan" width="w-28" />
-              <Th label="Ilość" k="ilosc" width="w-20" />
-              <Th label="Cena" k="cena" width="w-24" />
-              <Th label="Marka" k="marka" width="w-32" />
-              <Th label="SKU" k="sku" width="w-40" />
-            </tr></thead>
-            <tbody>
-              {rows.map((r,i)=>(
-                <tr key={r.sku+i} className={`border-b border-[#1C2024] hover:bg-[#15181B] ${i%2===0?"bg-[#0E1114]":"bg-[#0B0D0F]"}`}>
-                  <td className="px-3 py-2 text-sm">{r.nazwa}</td>
-                  <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-[#0B0D0F]" style={{backgroundColor:statusColor(r.stan)}}>{r.stan||"—"}</span></td>
-                  <td className="px-3 py-2 text-sm text-[#C8FF3D]">{r.ilosc}</td>
-                  <td className="px-3 py-2 text-sm">{r.cena ? `${r.cena.toLocaleString("pl-PL")} zł` : "—"}</td>
-                  <td className="px-3 py-2 text-sm text-[#8A9099]">{r.marka||"—"}</td>
-                  <td className="px-3 py-2 text-xs text-[#5A6068]">{r.sku}</td>
-                </tr>
-              ))}
-              {rows.length===0 && !loading && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-[#5A6068]">Brak wyników.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+  return h("div", {className:"min-h-screen w-full text-[#EDEEF0] p-6"},
+    error && h("div", {className:"max-w-[1400px] mx-auto mb-4 bg-[#2A1414] border border-[#FF6B35] rounded-md p-3 text-xs text-[#FF9B7A]"}, error),
+    h("div", {className:"max-w-[1400px] mx-auto mb-6 flex items-center justify-between flex-wrap gap-4"},
+      h("div", null,
+        h("h1", {className:"font-display text-2xl uppercase"}, "Magazyn ", h("span",{className:"text-[#C8FF3D]"},"B2B")),
+        h("p", {className:"text-xs text-[#8A9099] mt-1"},
+          (loading ? "ładowanie..." : lastSync ? ("zaktualizowano o " + lastSync.toLocaleTimeString("pl-PL")) : "") + " · " + rows.length + " pozycji"
+        )
+      ),
+      h("input", {
+        value:query, onChange:e=>setQuery(e.target.value), placeholder:"Szukaj po nazwie lub SKU...",
+        className:"w-full sm:w-80 bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#C8FF3D]"
+      })
+    ),
+    h("div", {className:"max-w-[1400px] mx-auto flex gap-2 mb-4 flex-wrap"},
+      h("select", {value:marka, onChange:e=>setMarka(e.target.value), className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs"},
+        h("option",{value:""},"Marka: wszystkie"),
+        marki.map(m=>h("option",{key:m,value:m},m))
+      ),
+      h("select", {value:stan, onChange:e=>setStan(e.target.value), className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs"},
+        h("option",{value:""},"Stan: wszystkie"),
+        stany.map(s=>h("option",{key:s,value:s},s))
+      ),
+      (query||marka||stan) && h("button",{onClick:clearFilters, className:"text-xs text-[#8A9099] hover:text-[#C8FF3D] px-2 py-1.5"}, "✕ wyczyść filtry")
+    ),
+    h("div", {className:"max-w-[1400px] mx-auto border border-[#2A2E33] rounded-lg overflow-hidden"},
+      h("div", {className:"overflow-x-auto max-h-[600px] overflow-y-auto"},
+        h("table", {className:"w-full border-collapse"},
+          h("thead", null, h("tr", null,
+            Th("Nazwa","nazwa",""), Th("Stan","stan","w-28"), Th("Ilość","ilosc","w-20"),
+            Th("Cena","cena","w-24"), Th("Marka","marka","w-32"), Th("SKU","sku","w-40")
+          )),
+          h("tbody", null,
+            rows.map((r,i)=>h("tr", {key:r.sku+i, className:"border-b border-[#1C2024] hover:bg-[#15181B] "+(i%2===0?"bg-[#0E1114]":"bg-[#0B0D0F]")},
+              h("td",{className:"px-3 py-2 text-sm"}, r.nazwa),
+              h("td",{className:"px-3 py-2"}, h("span",{className:"inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-[#0B0D0F]", style:{backgroundColor:statusColor(r.stan)}}, r.stan||"—")),
+              h("td",{className:"px-3 py-2 text-sm text-[#C8FF3D]"}, r.ilosc),
+              h("td",{className:"px-3 py-2 text-sm"}, r.cena ? (r.cena.toLocaleString("pl-PL")+" zł") : "—"),
+              h("td",{className:"px-3 py-2 text-sm text-[#8A9099]"}, r.marka||"—"),
+              h("td",{className:"px-3 py-2 text-xs text-[#5A6068]"}, r.sku)
+            )),
+            rows.length===0 && !loading && h("tr",null, h("td",{colSpan:6, className:"px-3 py-8 text-center text-sm text-[#5A6068]"}, "Brak wyników."))
+          )
+        )
+      )
+    )
   );
 }
-ReactDOM.createRoot(document.getElementById("root")).render(<Katalog />);
+ReactDOM.createRoot(document.getElementById("root")).render(h(Katalog));
 </script>
 </body>
 </html>
