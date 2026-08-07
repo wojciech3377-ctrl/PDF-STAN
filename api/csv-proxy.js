@@ -2,7 +2,7 @@
 // (gdzie nie ma blokady CORS) i przekazuje go dalej do Twojej strony.
 
 export default async function handler(req, res) {
-  const csvUrl = "https://panel-f.baselinker.com/inventory_export.php?hash=d956b83f5929e02fe35f85d297232b2b";
+  const csvUrl = "https://panel-f.baselinker.com/inventory_export.php?hash=e2eb224b702e27b6c1cfcb18a520eecc";
 
   try {
     const response = await fetch(csvUrl);
