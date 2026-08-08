@@ -23,14 +23,25 @@ const h = React.createElement;
 const { useState, useMemo, useEffect, useCallback } = React;
 
 const HEADER_MAP = {
+  zdjecie: ["zdjecie", "zdjęcie", "image", "photo", "foto"],
   nazwa: ["nazwa", "produkt_nazwa", "name"],
   stan: ["stan", "status"],
   ilosc: ["ilosc", "ilość", "quantity", "stock"],
   cena: ["cena", "cena sklep", "price"],
   marka: ["marka", "brand"],
   sku: ["sku", "produkt_sku"],
+  kategoria: ["kategoria", "kategoria_nazwa", "category"],
 };
 function normalizeHeader(hh){ return hh.toLowerCase().replace(/["']/g,"").trim(); }
+function extractImageUrl(raw){
+  if (!raw) return "";
+  const s = String(raw).trim();
+  // BaseLinker zapisuje zdjęcie jako formułę arkusza: =image("https://...")
+  const m = s.match(/=image\(\s*"([^"]+)"\s*\)/i);
+  if (m) return m[1];
+  if (/^https?:\/\//i.test(s)) return s;
+  return "";
+}
 function mapRow(raw){
   const out = {};
   const keys = Object.keys(raw).reduce((acc,k)=>{acc[normalizeHeader(k)]=raw[k];return acc;},{});
@@ -40,94 +51,302 @@ function mapRow(raw){
   }
   out.ilosc = Number(String(out.ilosc).replace(/[^0-9.-]/g,"")) || 0;
   out.cena = Number(String(out.cena).replace(/[^0-9.,]/g,"").replace(",", ".")) || 0;
+  out.zdjecie = extractImageUrl(out.zdjecie);
   return out;
 }
 const PALETTE = ["#C8FF3D","#FF6B35","#5AC8FA","#3A3F45","#E85D75"];
-function statusColor(s){ const i = Array.from(String(s)).reduce((a,c)=>a+c.charCodeAt(0),0)%PALETTE.length; return PALETTE[i]; }
+function statusColor(s){
+  const norm = String(s).trim().toUpperCase();
+  if (norm === "NOWE") return "#C8FF3D";     // zielony (kolor marki)
+  if (norm === "UŻYWANE" || norm === "UZYWANE") return "#5AC8FA"; // niebieski
+  const i = Array.from(String(s)).reduce((a,c)=>a+c.charCodeAt(0),0)%PALETTE.length;
+  return PALETTE[i];
+}
+
+const ROZMIAR_LITERY = ["XXS","XS","S","M","L","XL","XXL","XXXL","4XL","5XL"];
+function parseRozmiarValue(rozmiar){
+  // Zwraca liczbę do sortowania rozmiarów - obsługuje zwykłe liczby (42), ułamki (37 1/3),
+  // zakresy/kombinacje (L / 40.5, Białe / 36-40) i litery (S, M, L, XL...).
+  // Nieznane/puste/"OS" trafiają zawsze na koniec (Infinity).
+  const s = (rozmiar || "").trim();
+  if (!s) return Infinity;
+  if (s.toUpperCase() === "OS") return Infinity;
+  // Ułamek (np. "40 1/3") sprawdzamy NAJPIERW na całym tekście - inaczej cięcie po "/"
+  // niżej (dla przypadków typu "L / 40.5") obcina ułamek do samego mianownika.
+  const fracMatch = s.match(/(\d+)\s+(\d+)\s*\/\s*(\d+)/);
+  if (fracMatch) return parseFloat(fracMatch[1]) + parseFloat(fracMatch[2]) / parseFloat(fracMatch[3]);
+  const czescPoUkosniku = s.includes("/") ? s.split("/").pop().trim() : s;
+  const numMatch = czescPoUkosniku.match(/(\d+(?:[.,]\d+)?)/);
+  if (numMatch) return parseFloat(numMatch[1].replace(",", "."));
+  const literowy = ROZMIAR_LITERY.indexOf(s.toUpperCase());
+  if (literowy >= 0) return -1000 + literowy; // litery zawsze przed rozmiarami liczbowymi, bez kolizji z np. "1"
+  return Infinity;
+}
+
+function rozmiarBucket(rozmiar){
+  // Grupuje warianty tego samego "pełnego rozmiaru" razem: 42, 42.5, 42,5, 42 1/3, 42 2/3
+  // wszystkie trafiają do kubełka "42" - wybranie któregokolwiek z nich w filtrze
+  // pokazuje wszystkie pozostałe.
+  const s = (rozmiar || "").trim();
+  if (!s) return "";
+  if (s.toUpperCase() === "OS") return "OS";
+  if (ROZMIAR_LITERY.includes(s.toUpperCase())) return s.toUpperCase();
+  const val = parseRozmiarValue(s);
+  if (isFinite(val) && val >= 0) return String(Math.floor(val));
+  return s;
+}
+
+const SPECIAL_ROZMIARY = [
+  "Białe / 36-40",
+  "Białe / 40.5-47",
+  "Czarny / 40.5-47",
+  "Czarny / 36-40",
+];
+// Nazwy, które MIMO że są krótkie (<=9 znaków), są prawdziwymi, samodzielnymi produktami,
+// a nie rozmiarem/wariantem poprzedniego produktu - nigdy nie doklejamy ich do kotwicy.
+const WYJATKI_NIE_ROZMIAR = [
+  "Sznurówki",
+];
+function jestWariantem(nazwa){
+  if (WYJATKI_NIE_ROZMIAR.some(w => w.toLowerCase() === nazwa.toLowerCase())) return false;
+  if (nazwa.length > 0 && nazwa.length <= 9) return true;
+  return SPECIAL_ROZMIARY.some(s => s.toLowerCase() === nazwa.toLowerCase());
+}
+
+function skuSortKey(sku){
+  // BaseLinker nadaje kolejnym wariantom tego samego produktu sekwencyjnie rosnące
+  // numery SKU (np. SNDP00015451 -> produkt, SNDP00015452 -> jego rozmiar).
+  // Sam plik CSV bywa jednak poukładany w oddzielne bloki (najpierw wszystkie
+  // produkty, potem osobno wszystkie warianty), więc żeby rekonstrukcja
+  // "kotwica + warianty pod nią" działała, trzeba NAJPIERW posortować wiersze
+  // po tym numerze - dopiero wtedy produkt i jego warianty sąsiadują ze sobą.
+  const m = String(sku).match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : -1;
+}
+
+function reconstructRozmiary(mapped){
+  // Rekonstrukcja: wiersz z nazwą > 9 znaków (i niebędący jedną ze SPECIAL_ROZMIARY) to "kotwica" (pełny produkt).
+  // Wiersze o nazwie <= 9 znaków, lub dokładnie pasujące do SPECIAL_ROZMIARY, to warianty/rozmiary tego produktu -
+  // przejmują nazwę kotwicy i trafiają do osobnego pola "rozmiar".
+  //
+  // WAŻNE: numer SKU nie zawsze rośnie sekwencyjnie w obrębie jednego produktu i jego wariantów
+  // (czasem wariant ma NIŻSZY numer SKU niż sam produkt) - dlatego nie polegamy na kolejności
+  // wierszy ani na SKU. Zamiast tego grupujemy po zdjęciu produktu (ZDJECIE), które jest
+  // identyczne dla produktu i wszystkich jego wariantów, i w obrębie takiej grupy wyszukujemy
+  // konkretnie wiersz z pełną nazwą - niezależnie od tego, w którym miejscu grupy się znajduje.
+  const grupy = new Map();
+  let brakZdjeciaLicznik = 0;
+  for (const r of mapped) {
+    const zdj = (r.zdjecie || "").trim();
+    // wiersze bez zdjęcia nie mają jak się połączyć z innymi - każdy trafia do własnej grupy
+    const klucz = zdj || ("__brak_zdjecia_" + (brakZdjeciaLicznik++));
+    if (!grupy.has(klucz)) grupy.set(klucz, []);
+    grupy.get(klucz).push(r);
+  }
+
+  let out = [];
+  for (const grupa of grupy.values()) {
+    const kotwice = grupa.filter(r => !jestWariantem(r.nazwa.trim()));
+    const warianty = grupa.filter(r => jestWariantem(r.nazwa.trim()));
+
+    if (kotwice.length === 1) {
+      // najczęstszy i jednoznaczny przypadek: jedno zdjęcie = jeden produkt + jego warianty
+      const anchor = kotwice[0];
+      const nazwa = anchor.nazwa.trim();
+      out.push({ ...anchor, rozmiar: warianty.length ? "" : "OS" });
+      for (const w of warianty) {
+        out.push({ ...w, nazwa, rozmiar: w.nazwa.trim() });
+      }
+    } else if (kotwice.length > 1) {
+      // kilka różnych ofert tego samego produktu dzieli to samo zdjęcie (duplikaty wystawień) -
+      // wtedy dopasowujemy warianty do najbliższej kotwicy po numerze SKU, tak jak dotychczas
+      const posortowane = [...grupa].sort((a, b) => skuSortKey(a.sku) - skuSortKey(b.sku));
+      let currentName = "";
+      let currentAnchor = null;
+      for (const r of posortowane) {
+        const nazwa = r.nazwa.trim();
+        const wygladaJakWariant = jestWariantem(nazwa);
+        if (wygladaJakWariant && currentName) {
+          out.push({ ...r, nazwa: currentName, rozmiar: nazwa });
+          if (currentAnchor) currentAnchor._hasWariant = true;
+        } else {
+          const newRow = { ...r, rozmiar: "" };
+          if (!wygladaJakWariant) {
+            currentName = nazwa;
+            newRow._hasWariant = false;
+            currentAnchor = newRow;
+          } else {
+            currentAnchor = null;
+          }
+          out.push(newRow);
+        }
+      }
+    } else {
+      // brak jakiejkolwiek kotwicy w tej grupie (prawdziwy produkt-rodzic nie znalazł się
+      // w pliku) - zostawiamy wiersze bez rozmiaru, zostaną odfiltrowane w widoku tabeli
+      for (const r of grupa) out.push({ ...r, rozmiar: "" });
+    }
+  }
+  return out.map(row => {
+    if (Object.prototype.hasOwnProperty.call(row, "_hasWariant")) {
+      const { _hasWariant, ...rest } = row;
+      return { ...rest, rozmiar: _hasWariant ? "" : "OS" };
+    }
+    return row;
+  });
+}
+
+function MultiSelectDropdown({label, options, selected, onChange}){
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+  useEffect(()=>{
+    function onDocClick(e){ if(ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    return ()=> document.removeEventListener("mousedown", onDocClick);
+  },[]);
+  const toggle = (opt)=>{
+    const next = new Set(selected);
+    if(next.has(opt)) next.delete(opt); else next.add(opt);
+    onChange(next);
+  };
+  const labelText = selected.size===0 ? (label+": wszystkie") : (label+" ("+selected.size+")");
+  return h("div", {ref, className:"relative"},
+    h("button", {
+      type:"button", onClick:()=>setOpen(o=>!o),
+      className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs text-left min-w-[130px] "+(selected.size>0?"text-[#C8FF3D] border-[#C8FF3D]/50":"text-[#EDEEF0]")
+    }, labelText),
+    open && h("div", {className:"absolute z-20 mt-1 max-h-64 overflow-y-auto bg-[#15181B] border border-[#2A2E33] rounded-md p-2 min-w-[170px] shadow-lg"},
+      options.map(opt=>h("label", {key:opt, className:"flex items-center gap-2 px-2 py-1 text-xs hover:bg-[#1C2024] rounded cursor-pointer whitespace-nowrap"},
+        h("input", {type:"checkbox", checked:selected.has(opt), onChange:()=>toggle(opt), className:"accent-[#C8FF3D]"}),
+        opt
+      )),
+      selected.size>0 && h("button", {
+        type:"button", onClick:()=>onChange(new Set()),
+        className:"mt-1 text-[10px] text-[#8A9099] hover:text-[#C8FF3D] px-2 py-1"
+      }, "wyczyść")
+    )
+  );
+}
 
 function Katalog(){
   const [data,setData] = useState([]);
-  const [loading,setLoading] = useState(true);
+  const [loading,setLoading] = useState(false);
   const [error,setError] = useState("");
   const [lastSync,setLastSync] = useState(null);
+  const [fileName,setFileName] = useState("");
+  const [source,setSource] = useState(""); // "local" | "drive"
+  const [dragOver,setDragOver] = useState(false);
   const [query,setQuery] = useState("");
-  const [marka,setMarka] = useState("");
+  const [markiWybrane,setMarkiWybrane] = useState(()=>new Set());
   const [stan,setStan] = useState("");
+  const [rozmiaryWybrane,setRozmiaryWybrane] = useState(()=>new Set());
+  const [kategoria,setKategoria] = useState("");
   const [sortKey,setSortKey] = useState("nazwa");
   const [sortDir,setSortDir] = useState(1);
+  const [podgladZdjecia,setPodgladZdjecia] = useState(null);
+  const fileInputRef = React.useRef(null);
 
-  const fetchCsv = useCallback(()=>{
+  const processFile = useCallback((file)=>{
+    if (!file) return;
+    setLoading(true); setError("");
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      try{
+        const text = e.target.result;
+        const parsed = Papa.parse(text, {header:true, delimiter:";", skipEmptyLines:true});
+        let mapped = parsed.data.map(mapRow).filter(r=>r.nazwa);
+        mapped = reconstructRozmiary(mapped);
+        setData(mapped);
+        setFileName(file.name);
+        setSource("local");
+        setLastSync(new Date());
+      }catch(err){
+        setError("Nie udało się przetworzyć pliku: "+err.message);
+      }finally{
+        setLoading(false);
+      }
+    };
+    reader.onerror = ()=>{ setError("Nie udało się odczytać pliku."); setLoading(false); };
+    reader.readAsText(file, "UTF-8");
+  },[]);
+
+  const fetchFromDrive = useCallback(()=>{
     setLoading(true); setError("");
     fetch("/api/csv-proxy")
-      .then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
+      .then(async r=>{
+        if(!r.ok) {
+          const body = await r.json().catch(()=>null);
+          throw new Error(body && body.error ? body.error : ("HTTP "+r.status));
+        }
+        return r.text();
+      })
       .then(text=>{
         const parsed = Papa.parse(text, {header:true, delimiter:";", skipEmptyLines:true});
         let mapped = parsed.data.map(mapRow).filter(r=>r.nazwa);
-        // Rekonstrukcja: wiersz z nazwą > 8 znaków to "kotwica" (pełny produkt).
-        // Wiersze o nazwie <= 8 znaków tuż pod nią to warianty/rozmiary tego produktu -
-        // przejmują nazwę kotwicy i trafiają do osobnego pola "rozmiar".
-        // Jeśli kolejna kotwica pojawi się zanim znajdzie się jakikolwiek wariant,
-        // taki produkt nie ma rozmiarów - w polu "rozmiar" wstawiamy "OS".
-        let currentName = "";
-        let currentAnchor = null;
-        let out = [];
-        for (const r of mapped) {
-          const nazwa = r.nazwa.trim();
-          const wygladaJakWariant = nazwa.length > 0 && nazwa.length <= 8;
-          if (wygladaJakWariant && currentName) {
-            out.push({ ...r, nazwa: currentName, rozmiar: nazwa });
-            if (currentAnchor) currentAnchor._hasWariant = true;
-          } else {
-            const newRow = { ...r, rozmiar: "" };
-            if (!wygladaJakWariant) {
-              currentName = nazwa;
-              newRow._hasWariant = false;
-              currentAnchor = newRow;
-            } else {
-              // "sierocy" wiersz-wariant bez żadnej wcześniejszej kotwicy - pomijamy dopasowanie
-              currentAnchor = null;
-            }
-            out.push(newRow);
-          }
-        }
-        mapped = out.map(row => {
-          if (Object.prototype.hasOwnProperty.call(row, "_hasWariant")) {
-            const { _hasWariant, ...rest } = row;
-            return { ...rest, rozmiar: _hasWariant ? "" : "OS" };
-          }
-          return row;
-        });
+        mapped = reconstructRozmiary(mapped);
         setData(mapped);
+        setFileName("");
+        setSource("drive");
         setLastSync(new Date());
       })
-      .catch(e=> setError("Nie udało się pobrać danych: "+e.message))
+      .catch(e=> setError("Nie udało się pobrać danych z BaseLinkera: "+e.message))
       .finally(()=> setLoading(false));
   },[]);
 
+  // Automatyczne pobranie danych z BaseLinkera zaraz po wejściu na stronę,
+  // a potem odświeżanie co godzinę - bez potrzeby ręcznego klikania.
   useEffect(()=>{
-    fetchCsv();
-    const t = setInterval(fetchCsv, 60*60*1000);
-    return ()=> clearInterval(t);
-  },[fetchCsv]);
+    fetchFromDrive();
+    const interval = setInterval(fetchFromDrive, 60*60*1000);
+    return ()=> clearInterval(interval);
+  },[fetchFromDrive]);
 
-  const marki = useMemo(()=>[...new Set(data.map(r=>r.marka).filter(Boolean))].sort(),[data]);
-  const stany = useMemo(()=>[...new Set(data.map(r=>r.stan).filter(Boolean))].sort(),[data]);
+  const onFileInputChange = e=>{
+    const file = e.target.files && e.target.files[0];
+    processFile(file);
+    e.target.value = "";
+  };
+  const onDrop = e=>{
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) processFile(file);
+  };
+  const openFilePicker = ()=> fileInputRef.current && fileInputRef.current.click();
+
+  const dataWidoczne = useMemo(()=>
+    data.filter(r=> r.ilosc>0 && !r.nazwa.toLowerCase().includes("mystery box"))
+  ,[data]);
+
+  const marki = useMemo(()=>[...new Set(dataWidoczne.map(r=>r.marka).filter(Boolean))].sort(),[dataWidoczne]);
+  const stany = useMemo(()=>[...new Set(dataWidoczne.map(r=>r.stan).filter(Boolean))].sort(),[dataWidoczne]);
+  const kategorie = useMemo(()=>[...new Set(dataWidoczne.map(r=>r.kategoria).filter(Boolean))].sort(),[dataWidoczne]);
+  const rozmiary = useMemo(()=>{
+    const unikalne = [...new Set(dataWidoczne.map(r=>r.rozmiar).filter(r=>r && r!==""))];
+    return unikalne.sort((a,b)=> a.localeCompare(b, "pl"));
+  },[dataWidoczne]);
 
   const rows = useMemo(()=>{
-    let d = data.filter(r=>r.ilosc>0);
+    let d = dataWidoczne;
+    // ukrywamy wiersze bez konkretnego rozmiaru (np. "zbiorczy" wpis produktu z wariantami) -
+    // ale NIE mylimy tego z "OS", które oznacza produkt celowo bez rozmiarów (np. akcesoria)
+    d = d.filter(r=> r.rozmiar !== "");
     if(query) d = d.filter(r=> r.nazwa.toLowerCase().includes(query.toLowerCase()) || r.sku.toLowerCase().includes(query.toLowerCase()));
-    if(marka) d = d.filter(r=>r.marka===marka);
+    if(markiWybrane.size) d = d.filter(r=>markiWybrane.has(r.marka));
     if(stan) d = d.filter(r=>r.stan===stan);
+    if(kategoria) d = d.filter(r=>r.kategoria===kategoria);
+    if(rozmiaryWybrane.size){
+      d = d.filter(r=> rozmiaryWybrane.has(r.rozmiar));
+    }
     d = [...d].sort((a,b)=>{
       const av=a[sortKey], bv=b[sortKey];
       if(typeof av==="number") return (av-bv)*sortDir;
       return String(av).localeCompare(String(bv),"pl")*sortDir;
     });
     return d;
-  },[data,query,marka,stan,sortKey,sortDir]);
+  },[dataWidoczne,query,markiWybrane,stan,rozmiaryWybrane,kategoria,sortKey,sortDir]);
 
   const toggleSort = k => { if(sortKey===k) setSortDir(d=>-d); else {setSortKey(k); setSortDir(1);} };
-  const clearFilters = () => { setQuery(""); setMarka(""); setStan(""); };
+  const clearFilters = () => { setQuery(""); setMarkiWybrane(new Set()); setStan(""); setRozmiaryWybrane(new Set()); setKategoria(""); };
 
   function Th(label,k,width){
     return h("th", {
@@ -142,45 +361,102 @@ function Katalog(){
       h("div", null,
         h("h1", {className:"font-display text-2xl uppercase"}, "Magazyn ", h("span",{className:"text-[#C8FF3D]"},"B2B")),
         h("p", {className:"text-xs text-[#8A9099] mt-1"},
-          (loading ? "ładowanie..." : lastSync ? ("zaktualizowano o " + lastSync.toLocaleTimeString("pl-PL")) : "") + " · " + rows.length + " pozycji"
+          loading ? "wczytywanie..." :
+          source==="local" ? (fileName + " · zaktualizowano o " + lastSync.toLocaleTimeString("pl-PL") + " · " + rows.length + " pozycji") :
+          source==="drive" ? ("Dysk Google · zaktualizowano o " + lastSync.toLocaleTimeString("pl-PL") + " · " + rows.length + " pozycji") :
+          "brak wczytanych danych"
         )
       ),
-      h("input", {
+      data.length>0 && h("input", {
         value:query, onChange:e=>setQuery(e.target.value), placeholder:"Szukaj po nazwie lub SKU...",
         className:"w-full sm:w-80 bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#C8FF3D]"
       })
     ),
-    h("div", {className:"max-w-[1400px] mx-auto flex gap-2 mb-4 flex-wrap"},
-      h("select", {value:marka, onChange:e=>setMarka(e.target.value), className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs"},
-        h("option",{value:""},"Marka: wszystkie"),
-        marki.map(m=>h("option",{key:m,value:m},m))
+    h("input", {
+      ref: fileInputRef, type:"file", accept:".csv,text/csv", className:"hidden", onChange:onFileInputChange
+    }),
+    h("div", {className:"max-w-[1400px] mx-auto mb-4 flex flex-col sm:flex-row gap-3"},
+      h("div", {
+        onClick: openFilePicker,
+        onDragOver: e=>{ e.preventDefault(); setDragOver(true); },
+        onDragLeave: ()=> setDragOver(false),
+        onDrop: onDrop,
+        className: "flex-1 border-2 border-dashed rounded-lg px-6 py-6 text-center cursor-pointer transition-colors "
+          + (dragOver ? "border-[#C8FF3D] bg-[#15181B]" : "border-[#2A2E33] hover:border-[#5A6068]")
+      },
+        h("p", {className:"text-sm text-[#EDEEF0]"},
+          source==="local" ? ("Wgrany plik: " + fileName) : "Przeciągnij i upuść plik CSV, albo kliknij, żeby wybrać z dysku"
+        ),
+        h("p", {className:"text-xs text-[#5A6068] mt-1"}, "Format: CSV, separator „;”")
       ),
+      h("button", {
+        onClick: fetchFromDrive,
+        disabled: loading,
+        className: "flex-1 border-2 rounded-lg px-6 py-6 text-center transition-colors "
+          + (source==="drive" ? "border-[#C8FF3D] bg-[#15181B]" : "border-[#2A2E33] hover:border-[#5A6068]")
+      },
+        h("p", {className:"text-sm text-[#EDEEF0]"}, loading ? "Pobieranie..." : "Pobierz aktualny stan z Dysku Google"),
+        h("p", {className:"text-xs text-[#5A6068] mt-1"}, "Przez wewnętrzne proxy /api/csv-proxy")
+      )
+    ),
+    data.length>0 && h("div", {className:"max-w-[1400px] mx-auto flex gap-2 mb-4 flex-wrap"},
+      h(MultiSelectDropdown, {label:"Marka", options:marki, selected:markiWybrane, onChange:setMarkiWybrane}),
       h("select", {value:stan, onChange:e=>setStan(e.target.value), className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs"},
         h("option",{value:""},"Stan: wszystkie"),
         stany.map(s=>h("option",{key:s,value:s},s))
       ),
-      (query||marka||stan) && h("button",{onClick:clearFilters, className:"text-xs text-[#8A9099] hover:text-[#C8FF3D] px-2 py-1.5"}, "✕ wyczyść filtry")
+      h(MultiSelectDropdown, {label:"Rozmiar", options:rozmiary, selected:rozmiaryWybrane, onChange:setRozmiaryWybrane}),
+      h("select", {value:kategoria, onChange:e=>setKategoria(e.target.value), className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs"},
+        h("option",{value:""},"Kategoria: wszystkie"),
+        kategorie.map(k=>h("option",{key:k,value:k},k))
+      ),
+      (query||markiWybrane.size||stan||rozmiaryWybrane.size||kategoria) && h("button",{onClick:clearFilters, className:"text-xs text-[#8A9099] hover:text-[#C8FF3D] px-2 py-1.5"}, "✕ wyczyść filtry")
     ),
-    h("div", {className:"max-w-[1400px] mx-auto border border-[#2A2E33] rounded-lg overflow-hidden"},
+    data.length>0 && h("div", {className:"max-w-[1400px] mx-auto border border-[#2A2E33] rounded-lg overflow-hidden"},
       h("div", {className:"overflow-x-auto max-h-[600px] overflow-y-auto"},
         h("table", {className:"w-full border-collapse"},
           h("thead", null, h("tr", null,
+            h("th", {key:"zdjecie", className:"sticky top-0 z-10 bg-[#0B0D0F] border-b border-[#2A2E33] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8A9099] w-16"}, "Zdjęcie"),
             Th("Nazwa","nazwa",""), Th("Rozmiar","rozmiar","w-20"), Th("Stan","stan","w-28"), Th("Ilość","ilosc","w-20"),
-            Th("Cena","cena","w-24"), Th("Marka","marka","w-32"), Th("SKU","sku","w-40")
+            Th("Cena","cena","w-24"), Th("Marka","marka","w-32"), Th("Kategoria","kategoria","w-32"), Th("SKU","sku","w-40")
           )),
           h("tbody", null,
             rows.map((r,i)=>h("tr", {key:r.sku+i, className:"border-b border-[#1C2024] hover:bg-[#15181B] "+(i%2===0?"bg-[#0E1114]":"bg-[#0B0D0F]")},
+              h("td",{className:"px-3 py-2"},
+                r.zdjecie
+                  ? h("img", {
+                      src:r.zdjecie, loading:"lazy",
+                      className:"w-16 h-16 object-cover rounded bg-[#15181B] cursor-zoom-in hover:opacity-80 transition-opacity",
+                      onClick: ()=> setPodgladZdjecia({src:r.zdjecie, nazwa:r.nazwa}),
+                      onError: e=>{ e.target.style.visibility="hidden"; }
+                    })
+                  : h("div", {className:"w-16 h-16 rounded bg-[#15181B] border border-[#2A2E33]"})
+              ),
               h("td",{className:"px-3 py-2 text-sm"}, r.nazwa),
               h("td",{className:"px-3 py-2 text-sm text-[#8A9099]"}, r.rozmiar || "—"),
               h("td",{className:"px-3 py-2"}, h("span",{className:"inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-[#0B0D0F]", style:{backgroundColor:statusColor(r.stan)}}, r.stan||"—")),
               h("td",{className:"px-3 py-2 text-sm text-[#C8FF3D]"}, r.ilosc),
               h("td",{className:"px-3 py-2 text-sm"}, r.cena ? (r.cena.toLocaleString("pl-PL")+" zł") : "—"),
               h("td",{className:"px-3 py-2 text-sm text-[#8A9099]"}, r.marka||"—"),
+              h("td",{className:"px-3 py-2 text-sm text-[#8A9099]"}, r.kategoria||"—"),
               h("td",{className:"px-3 py-2 text-xs text-[#5A6068]"}, r.sku)
             )),
-            rows.length===0 && !loading && h("tr",null, h("td",{colSpan:6, className:"px-3 py-8 text-center text-sm text-[#5A6068]"}, "Brak wyników."))
+            rows.length===0 && !loading && h("tr",null, h("td",{colSpan:9, className:"px-3 py-8 text-center text-sm text-[#5A6068]"}, "Brak wyników."))
           )
         )
+      )
+    ),
+    podgladZdjecia && h("div", {
+      onClick: ()=> setPodgladZdjecia(null),
+      className: "fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6 cursor-zoom-out"
+    },
+      h("div", {className:"max-w-3xl max-h-full flex flex-col items-center gap-3"},
+        h("img", {src:podgladZdjecia.src, className:"max-w-full max-h-[80vh] object-contain rounded-lg border border-[#2A2E33]"}),
+        h("p", {className:"text-sm text-[#EDEEF0] text-center"}, podgladZdjecia.nazwa),
+        h("button", {
+          onClick: (e)=>{ e.stopPropagation(); setPodgladZdjecia(null); },
+          className:"text-xs text-[#8A9099] hover:text-[#C8FF3D] px-3 py-1.5 border border-[#2A2E33] rounded-md"
+        }, "✕ zamknij")
       )
     )
   );
