@@ -13,6 +13,98 @@
   body { font-family: 'IBM Plex Mono', monospace; background:#0B0D0F; margin:0; }
   .font-display { font-family: 'Archivo', sans-serif; }
   ::selection { background: #C8FF3D; color: #0B0D0F; }
+
+  /* Responsywność: telefon / mały ekran */
+  @media (max-width: 640px) {
+    body { overflow-x: hidden; }
+    .min-h-screen.w-full.text-\[\#EDEEF0\].p-6 {
+      padding: 12px !important;
+    }
+
+    /* Nagłówek */
+    .max-w-\[1400px\].mx-auto.mb-6 {
+      margin-bottom: 12px !important;
+      gap: 10px !important;
+    }
+    .max-w-\[1400px\].mx-auto.mb-6 h1 {
+      font-size: 20px !important;
+      line-height: 1.15 !important;
+    }
+    .max-w-\[1400px\].mx-auto.mb-6 p {
+      font-size: 9px !important;
+      line-height: 1.4 !important;
+    }
+    .max-w-\[1400px\].mx-auto.mb-6 input {
+      width: 100% !important;
+      font-size: 13px !important;
+      padding: 9px 10px !important;
+    }
+
+    /* Filtry */
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 {
+      gap: 6px !important;
+      margin-bottom: 10px !important;
+      overflow-x: auto;
+      flex-wrap: nowrap !important;
+      padding-bottom: 3px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 > * {
+      flex: 0 0 auto;
+    }
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 button,
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 select {
+      min-height: 34px !important;
+      font-size: 10px !important;
+      padding: 7px 9px !important;
+    }
+
+    /* Tabela: zachowuje wszystkie kolumny, ale można ją wygodnie przesuwać palcem */
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] {
+      border-radius: 7px !important;
+    }
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] > div {
+      overflow-x: auto !important;
+      overflow-y: auto !important;
+      max-height: calc(100vh - 155px) !important;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] table {
+      min-width: 980px;
+    }
+
+    /* Większe elementy dotykowe i trochę ciaśniejsze komórki */
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] th,
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] td {
+      padding: 8px 7px !important;
+      white-space: nowrap;
+    }
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] img {
+      width: 52px !important;
+      height: 52px !important;
+    }
+
+    /* Zdjęcie pozostaje widoczne podczas poziomego przesuwania tabeli */
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] th:first-child,
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 11;
+      background: #0B0D0F;
+    }
+    .max-w-\[1400px\].mx-auto.border.border-\[\#2A2E33\] tbody tr:nth-child(even) td:first-child {
+      background: #0E1114;
+    }
+
+    /* Okno podglądu zdjęcia */
+    .fixed.inset-0.z-50 {
+      padding: 12px !important;
+    }
+    .fixed.inset-0.z-50 img {
+      max-height: 70vh !important;
+    }
+  }
 </style>
 </head>
 <body>
