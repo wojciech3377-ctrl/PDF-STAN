@@ -375,14 +375,7 @@ function Katalog(){
     h("input", {
       ref: fileInputRef, type:"file", accept:".csv,text/csv", className:"hidden", onChange:onFileInputChange
     }),
-    h("div", {className:"max-w-[1400px] mx-auto mb-4 flex flex-col sm:flex-row gap-3"},
-      h("div", {
-        onClick: openFilePicker,
-        onDragOver: e=>{ e.preventDefault(); setDragOver(true); },
-        onDragLeave: ()=> setDragOver(false),
-        onDrop: onDrop,
-        className: "flex-1 border-2 border-dashed rounded-lg px-6 py-6 text-center cursor-pointer transition-colors "
-          + (dragOver ? "border-[#C8FF3D] bg-[#15181B]" : "border-[#2A2E33] hover:border-[#5A6068]")
+    
       },
       ),
     
