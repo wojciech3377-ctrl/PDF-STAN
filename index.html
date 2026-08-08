@@ -359,7 +359,7 @@ function Katalog(){
     error && h("div", {className:"max-w-[1400px] mx-auto mb-4 bg-[#2A1414] border border-[#FF6B35] rounded-md p-3 text-xs text-[#FF9B7A]"}, error),
     h("div", {className:"max-w-[1400px] mx-auto mb-6 flex items-center justify-between flex-wrap gap-4"},
       h("div", null,
-        h("h1", {className:"font-display text-2xl uppercase"}, "Magazyn ", h("span",{className:"text-[#C8FF3D]"},"B2B")),
+        h("h1", {className:"font-display text-2xl uppercase"}, "Magazyn B2B - ", h("span",{className:"text-[#C8FF3D]"},"SNEAKERS DEPOT")),
         h("p", {className:"text-xs text-[#8A9099] mt-1"},
           loading ? "wczytywanie..." :
           source==="local" ? (fileName + " · zaktualizowano o " + lastSync.toLocaleTimeString("pl-PL") + " · " + rows.length + " pozycji") :
@@ -371,33 +371,6 @@ function Katalog(){
         value:query, onChange:e=>setQuery(e.target.value), placeholder:"Szukaj po nazwie lub SKU...",
         className:"w-full sm:w-80 bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#C8FF3D]"
       })
-    ),
-    h("input", {
-      ref: fileInputRef, type:"file", accept:".csv,text/csv", className:"hidden", onChange:onFileInputChange
-    }),
-    h("div", {className:"max-w-[1400px] mx-auto mb-4 flex flex-col sm:flex-row gap-3"},
-      h("div", {
-        onClick: openFilePicker,
-        onDragOver: e=>{ e.preventDefault(); setDragOver(true); },
-        onDragLeave: ()=> setDragOver(false),
-        onDrop: onDrop,
-        className: "flex-1 border-2 border-dashed rounded-lg px-6 py-6 text-center cursor-pointer transition-colors "
-          + (dragOver ? "border-[#C8FF3D] bg-[#15181B]" : "border-[#2A2E33] hover:border-[#5A6068]")
-      },
-        h("p", {className:"text-sm text-[#EDEEF0]"},
-          source==="local" ? ("Wgrany plik: " + fileName) : "Przeciągnij i upuść plik CSV, albo kliknij, żeby wybrać z dysku"
-        ),
-        h("p", {className:"text-xs text-[#5A6068] mt-1"}, "Format: CSV, separator „;”")
-      ),
-      h("button", {
-        onClick: fetchFromDrive,
-        disabled: loading,
-        className: "flex-1 border-2 rounded-lg px-6 py-6 text-center transition-colors "
-          + (source==="drive" ? "border-[#C8FF3D] bg-[#15181B]" : "border-[#2A2E33] hover:border-[#5A6068]")
-      },
-        h("p", {className:"text-sm text-[#EDEEF0]"}, loading ? "Pobieranie..." : "Pobierz aktualny stan z Dysku Google"),
-        h("p", {className:"text-xs text-[#5A6068] mt-1"}, "Przez wewnętrzne proxy /api/csv-proxy")
-      )
     ),
     data.length>0 && h("div", {className:"max-w-[1400px] mx-auto flex gap-2 mb-4 flex-wrap"},
       h(MultiSelectDropdown, {label:"Marka", options:marki, selected:markiWybrane, onChange:setMarkiWybrane}),
