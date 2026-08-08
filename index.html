@@ -384,20 +384,10 @@ function Katalog(){
         className: "flex-1 border-2 border-dashed rounded-lg px-6 py-6 text-center cursor-pointer transition-colors "
           + (dragOver ? "border-[#C8FF3D] bg-[#15181B]" : "border-[#2A2E33] hover:border-[#5A6068]")
       },
-        h("p", {className:"text-sm text-[#EDEEF0]"},
-          source==="local" ? ("Wgrany plik: " + fileName) : "Przeciągnij i upuść plik CSV, albo kliknij, żeby wybrać z dysku"
-        ),
+       
         h("p", {className:"text-xs text-[#5A6068] mt-1"}, "Format: CSV, separator „;”")
       ),
-      h("button", {
-        onClick: fetchFromDrive,
-        disabled: loading,
-        className: "flex-1 border-2 rounded-lg px-6 py-6 text-center transition-colors "
-          + (source==="drive" ? "border-[#C8FF3D] bg-[#15181B]" : "border-[#2A2E33] hover:border-[#5A6068]")
-      },
-        h("p", {className:"text-sm text-[#EDEEF0]"}, loading ? "Pobieranie..." : "Pobierz aktualny stan z Dysku Google"),
-        h("p", {className:"text-xs text-[#5A6068] mt-1"}, "Przez wewnętrzne proxy /api/csv-proxy")
-      )
+    
     ),
     data.length>0 && h("div", {className:"max-w-[1400px] mx-auto flex gap-2 mb-4 flex-wrap"},
       h(MultiSelectDropdown, {label:"Marka", options:marki, selected:markiWybrane, onChange:setMarkiWybrane}),
