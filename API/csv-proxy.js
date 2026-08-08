@@ -4,7 +4,7 @@
 // ============================================================
 // WKLEJ TUTAJ SWÓJ LINK Z BASELINKERA (między cudzysłowami):
 // ============================================================
-const CSV_URL = "https://panel-f.baselinker.com/inventory_export.php?hash=55bac555336686fc41064e51ef7886a8";
+const CSV_URL = "https://panel-f.baselinker.com/inventory_export.php?hash=3eda4f2b4a6bafdd60ccd037caa00114";
 // ============================================================
 
 export default async function handler(req, res) {
