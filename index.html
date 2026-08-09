@@ -40,23 +40,53 @@
       padding: 9px 10px !important;
     }
 
-    /* Filtry */
+    /* Filtry - zawijają się do nowej linii (bez przewijania w poziomie),
+       każdy filtr zajmuje ok. połowę szerokości, więc wszystkie mieszczą się na ekranie */
     .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 {
       gap: 6px !important;
       margin-bottom: 10px !important;
-      overflow-x: auto;
-      flex-wrap: nowrap !important;
-      padding-bottom: 3px;
-      -webkit-overflow-scrolling: touch;
+      flex-wrap: wrap !important;
+      overflow-x: visible !important;
     }
     .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 > * {
-      flex: 0 0 auto;
+      flex: 1 1 calc(50% - 6px) !important;
+      min-width: 0 !important;
+    }
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 > button:last-child {
+      flex: 0 0 auto !important;
     }
     .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 button,
     .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 select {
       min-height: 34px !important;
-      font-size: 10px !important;
+      font-size: 11px !important;
       padding: 7px 9px !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+    }
+
+    /* Panel rozwijany filtrów Marka/Rozmiar: rozsuwa się w miejscu (jak natywny select),
+       na pełną szerokość, w 2 kolumnach, żeby wszystkie opcje było widać bez szukania */
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 .filter-dropdown-panel {
+      position: static !important;
+      width: 100% !important;
+      max-width: none !important;
+      min-width: 0 !important;
+      max-height: 42vh !important;
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 2px 8px !important;
+      margin-top: 6px !important;
+    }
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 .filter-dropdown-panel label {
+      font-size: 10.5px !important;
+      padding: 5px 4px !important;
+    }
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 .filter-dropdown-panel > button {
+      grid-column: 1 / -1 !important;
+      width: auto !important;
+    }
+    .max-w-\[1400px\].mx-auto.flex.gap-2.mb-4 .filter-dropdown-wrap {
+      flex-basis: 100% !important;
     }
 
     /* Tabela: zachowuje wszystkie kolumny, ale można ją wygodnie przesuwać palcem */
@@ -302,12 +332,12 @@ function MultiSelectDropdown({label, options, selected, onChange}){
     onChange(next);
   };
   const labelText = selected.size===0 ? (label+": wszystkie") : (label+" ("+selected.size+")");
-  return h("div", {ref, className:"relative"},
+  return h("div", {ref, className:"relative"+(open?" filter-dropdown-wrap":"")},
     h("button", {
       type:"button", onClick:()=>setOpen(o=>!o),
       className:"bg-[#15181B] border border-[#2A2E33] rounded-md px-3 py-1.5 text-xs text-left min-w-[130px] "+(selected.size>0?"text-[#C8FF3D] border-[#C8FF3D]/50":"text-[#EDEEF0]")
     }, labelText),
-    open && h("div", {className:"absolute z-20 mt-1 max-h-64 overflow-y-auto bg-[#15181B] border border-[#2A2E33] rounded-md p-2 min-w-[170px] shadow-lg"},
+    open && h("div", {className:"filter-dropdown-panel absolute z-20 mt-1 max-h-64 overflow-y-auto bg-[#15181B] border border-[#2A2E33] rounded-md p-2 min-w-[170px] shadow-lg"},
       options.map(opt=>h("label", {key:opt, className:"flex items-center gap-2 px-2 py-1 text-xs hover:bg-[#1C2024] rounded cursor-pointer whitespace-nowrap"},
         h("input", {type:"checkbox", checked:selected.has(opt), onChange:()=>toggle(opt), className:"accent-[#C8FF3D]"}),
         opt
